@@ -20,12 +20,33 @@ const lazy = XPCOMUtils.declareLazy({
     pref: "sidebar.visibility",
     default: "always-show",
   },
+  stickyActiveGroupLabel: {
+    pref: "browser.tabs.groups.stickyActiveLabel",
+    default: true,
+  },
 });
 
 export class MozTabbrowserTabs extends MozElements.TabsBase {
-  static observedAttributes = ["orient"];
+  static observedAttributes = ["orient", "movingtab"];
 
   #animatingGroups = new Set();
+
+  /**
+   * The tab group whose label is currently kept in view at the start of the
+   * scrolled tab strip, see #updateStickyGroupLabel.
+   *
+   * @type {MozTabbrowserTabGroup|null}
+   */
+  #stickyLabelGroup = null;
+
+  #stickyLabelUpdateFrame = 0;
+
+  /**
+   * Elements clipped where the sticky group label covers them.
+   *
+   * @type {Set<MozXULElement>}
+   */
+  #stickyLabelCoveredElements = new Set();
 
   /** @type {Set<MozTabbrowserTab>} */
   #openingTabs = new Set();
@@ -35,6 +56,10 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
 
     this.addEventListener("TabSelect", this);
     this.addEventListener("TabClose", this);
+    this.addEventListener("TabOpen", this);
+    this.addEventListener("TabMove", this);
+    this.addEventListener("TabGrouped", this);
+    this.addEventListener("TabUngrouped", this);
     this.addEventListener("TabAttrModified", this);
     this.addEventListener("TabHide", this);
     this.addEventListener("TabShow", this);
@@ -77,6 +102,7 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     );
     this.arrowScrollbox.addEventListener("underflow", this);
     this.arrowScrollbox.addEventListener("overflow", this);
+    this.arrowScrollbox.addEventListener("scroll", this);
     this.pinnedTabsContainer = document.getElementById("pinned-tabs-container");
     this.pinnedTabsContainer.setAttribute(
       "orient",
@@ -211,6 +237,9 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
       this.#updateTabMinWidth();
       this.pinnedTabsContainer?.setAttribute("orient", newValue);
     }
+    if (attrName == "orient" || attrName == "movingtab") {
+      this.#scheduleStickyGroupLabelUpdate();
+    }
     super.attributeChangedCallback(attrName, oldValue, newValue);
   }
 
@@ -265,11 +294,39 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     if (previousTab.group?.collapsed || newTab.group?.collapsed) {
       this._invalidateCachedVisibleTabs();
     }
+    // Before _handleTabSelect so the label size used as the tabs'
+    // scroll-margin is up to date when the tab gets scrolled into view.
+    this.#scheduleStickyGroupLabelUpdate();
     this._handleTabSelect();
+    // And again in the same frame the tab got scrolled into view, as the
+    // resulting scroll event only comes in the next frame.
+    window.requestAnimationFrame(() => this.#updateStickyGroupLabel());
   }
 
   on_TabClose(event) {
     this._hiddenSoundPlayingStatusChanged(event.target, { closed: true });
+    this.#scheduleStickyGroupLabelUpdate();
+  }
+
+  on_TabOpen() {
+    this.#scheduleStickyGroupLabelUpdate();
+  }
+
+  on_TabMove() {
+    this.#scheduleStickyGroupLabelUpdate();
+  }
+
+  on_TabGrouped() {
+    this.#scheduleStickyGroupLabelUpdate();
+  }
+
+  on_TabUngrouped() {
+    this.#scheduleStickyGroupLabelUpdate();
+  }
+
+  on_scroll() {
+    // Synchronous so the label doesn't lag behind the scrolled tabs.
+    this.#updateStickyGroupLabel();
   }
 
   on_TabAttrModified(event) {
@@ -353,12 +410,14 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
   on_TabGroupExpand(event) {
     this._invalidateCachedVisibleTabs();
     this.#animatingGroups.add(event.target.id);
+    this.#scheduleStickyGroupLabelUpdate();
   }
 
   on_TabGroupCollapse(event) {
     this._invalidateCachedVisibleTabs();
     this._unlockTabSizing();
     this.#animatingGroups.add(event.target.id);
+    this.#scheduleStickyGroupLabelUpdate();
   }
 
   on_TabGroupAnimationComplete(event) {
@@ -367,6 +426,7 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     window.requestAnimationFrame(() => {
       this.#animatingGroups.delete(event.target.id);
     });
+    this.#scheduleStickyGroupLabelUpdate();
   }
 
   on_TabGroupCreate() {
@@ -410,6 +470,8 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     } else if (tab.closing) {
       gBrowser._endRemoveTab(tab);
     }
+
+    this.#scheduleStickyGroupLabelUpdate();
 
     let evt = new CustomEvent("TabAnimationEnd", { bubbles: true });
     tab.dispatchEvent(evt);
@@ -709,6 +771,8 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
   }
 
   on_dragstart(event) {
+    // Drag and drop measures labels at their regular position.
+    this.#clearStickyGroupLabel();
     this.tabDragAndDrop.handle_dragstart(event);
   }
 
@@ -760,6 +824,7 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
 
     this.toggleAttribute("overflow", true);
     this._updateCloseButtons();
+    this.#scheduleStickyGroupLabelUpdate();
 
     if (!this.#animatingGroups.size) {
       this._handleTabSelect(true);
@@ -779,6 +844,7 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     }
 
     this.removeAttribute("overflow");
+    this.#scheduleStickyGroupLabelUpdate();
 
     if (this._lastTabClosedByMouse) {
       this._expandSpacerBy(this._scrollButtonWidth);
@@ -1392,6 +1458,178 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     }
     let selectedTab = /** @type {MozTabbrowserTab} */ (this.selectedItem);
     this.#ensureTabIsVisible(selectedTab, aInstant);
+  }
+
+  #scheduleStickyGroupLabelUpdate() {
+    if (this.#stickyLabelUpdateFrame) {
+      return;
+    }
+    this.#stickyLabelUpdateFrame = window.requestAnimationFrame(() => {
+      this.#stickyLabelUpdateFrame = 0;
+      this.#updateStickyGroupLabel();
+    });
+  }
+
+  /**
+   * Keeps the label of the selected tab's group in view while the horizontal
+   * tab strip is scrolled past the start of that group: the label stays at
+   * the start of the scrollbox, on top of the tabs scrolled underneath it,
+   * until the strip is scrolled back to the label's regular position.
+   *
+   * Tab groups are `display: contents` so that all tabs share the tab strip's
+   * space evenly, which means `position: sticky` can't be used here.
+   */
+  #updateStickyGroupLabel() {
+    let group = gBrowser.selectedTab?.group;
+    if (
+      !lazy.stickyActiveGroupLabel ||
+      !this.arrowScrollbox ||
+      this.verticalMode ||
+      this.#isMovingTab() ||
+      group?.collapsed
+    ) {
+      group = null;
+    }
+    if (this.#stickyLabelGroup != group) {
+      this.#clearStickyGroupLabel();
+    }
+    if (!group) {
+      return;
+    }
+    this.#stickyLabelGroup = group;
+
+    let labelContainer = group.labelContainerElement;
+    if (!labelContainer) {
+      return;
+    }
+
+    let labelRect = labelContainer.getBoundingClientRect();
+    group.style.setProperty(
+      "--tab-group-label-sticky-size",
+      `${labelRect.width}px`
+    );
+
+    if (!this.overflowing) {
+      this.#setStickyGroupLabelOffset(labelContainer, 0);
+      return;
+    }
+
+    let currentOffset =
+      parseFloat(
+        labelContainer.style.getPropertyValue("--tab-group-label-sticky-offset")
+      ) || 0;
+    let labelStart = labelRect.left - currentOffset;
+    let labelEnd = labelRect.right - currentOffset;
+    let scrollRect = this.arrowScrollbox.scrollClientRect;
+    let offset = RTL_UI
+      ? -Math.max(labelEnd - scrollRect.right, 0)
+      : Math.max(scrollRect.left - labelStart, 0);
+    this.#setStickyGroupLabelOffset(labelContainer, offset);
+    this.#clipUnderStickyGroupLabel(
+      offset ? labelContainer : null,
+      offset,
+      scrollRect
+    );
+  }
+
+  /**
+   * Clips the elements scrolled underneath the sticky group label, rather than
+   * covering them with an opaque background, so that whatever the theme or
+   * the native titlebar draw behind the tab strip shows around the label.
+   *
+   * @param {MozXULElement|null} labelContainer
+   *   The stuck label, or null to clear all clipping.
+   * @param {number} [offset]
+   * @param {DOMRect} [scrollRect]
+   */
+  #clipUnderStickyGroupLabel(labelContainer, offset, scrollRect) {
+    /** @type {Map<MozXULElement, number>} */
+    let covered = new Map();
+    if (labelContainer) {
+      // Work in "inline" coordinates that grow towards the end of the strip,
+      // with every rect as laid out, i.e. without the label's offset.
+      let start = rect => (RTL_UI ? -rect.right : rect.left);
+      let end = rect => (RTL_UI ? -rect.left : rect.right);
+      let rectOf = element => {
+        let rect = element.getBoundingClientRect();
+        return element == labelContainer
+          ? new DOMRect(rect.x - offset, rect.y, rect.width, rect.height)
+          : rect;
+      };
+      let elements = [];
+      for (let item of this.ariaFocusableItems) {
+        let element = isTabGroupLabel(item)
+          ? item.group.labelContainerElement
+          : (item.splitview ?? item);
+        if (!item.pinned && elements.at(-1) != element) {
+          elements.push(element);
+        }
+      }
+      let labelStart = start(scrollRect);
+      let labelEnd = labelStart + labelContainer.getBoundingClientRect().width;
+
+      let low = 0;
+      let high = elements.length;
+      while (low < high) {
+        let mid = (low + high) >> 1;
+        if (end(rectOf(elements[mid])) <= labelStart) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      for (let i = low; i < elements.length; i++) {
+        let element = elements[i];
+        let elementStart = start(rectOf(element));
+        if (elementStart >= labelEnd) {
+          break;
+        }
+        if (element != labelContainer) {
+          covered.set(element, labelEnd - elementStart);
+        }
+      }
+    }
+
+    for (let element of this.#stickyLabelCoveredElements) {
+      if (!covered.has(element)) {
+        element.removeAttribute("stickylabelcovered");
+        element.style.removeProperty("--tab-sticky-label-covered-size");
+      }
+    }
+    for (let [element, size] of covered) {
+      element.setAttribute("stickylabelcovered", "true");
+      element.style.setProperty("--tab-sticky-label-covered-size", `${size}px`);
+    }
+    this.#stickyLabelCoveredElements = new Set(covered.keys());
+  }
+
+  /**
+   * @param {MozXULElement} labelContainer
+   * @param {number} offset
+   */
+  #setStickyGroupLabelOffset(labelContainer, offset) {
+    if (offset) {
+      labelContainer.style.setProperty(
+        "--tab-group-label-sticky-offset",
+        `${offset}px`
+      );
+    } else {
+      labelContainer.style.removeProperty("--tab-group-label-sticky-offset");
+    }
+    labelContainer.toggleAttribute("stuck", !!offset);
+  }
+
+  #clearStickyGroupLabel() {
+    let group = this.#stickyLabelGroup;
+    if (!group) {
+      return;
+    }
+    this.#stickyLabelGroup = null;
+    this.#clipUnderStickyGroupLabel(null);
+    group.style.removeProperty("--tab-group-label-sticky-size");
+    if (group.labelContainerElement) {
+      this.#setStickyGroupLabelOffset(group.labelContainerElement, 0);
+    }
   }
 
   /**
