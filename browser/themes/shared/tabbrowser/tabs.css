@@ -1999,6 +1999,11 @@ tab-group {
     --tab-group-line-color: var(--tab-group-background-color);
   }
 
+  /* See MozTabbrowserTabs::#updateStickyGroupLabel. */
+  #tabbrowser-tabs[orient="horizontal"] & > :is(.tabbrowser-tab, tab-split-view-wrapper) {
+    scroll-margin-inline-start: var(--tab-group-label-sticky-size, 0);
+  }
+
   #tabbrowser-tabs[orient="horizontal"] &[movingtabgroup][collapsed] > .tabbrowser-tab[visuallyselected],
   #tabbrowser-tabs[orient="horizontal"] &[collapsed] > .tabbrowser-tab:not([visuallyselected], [multiselected]) {
     min-width: 0 !important;
@@ -2054,6 +2059,34 @@ tab-group {
 
   #tabbrowser-tabs[orient="vertical"][expanded] & {
     contain: inline-size;
+  }
+}
+
+/* See MozTabbrowserTabs::#updateStickyGroupLabel. */
+#tabbrowser-tabs[orient="horizontal"]:not([movingtab]) :is(.tab-group-label-container, tab-group > .tabbrowser-tab, tab-group > tab-split-view-wrapper)[stuck] {
+  translate: var(--tab-strip-sticky-offset) 0;
+  z-index: 2;
+}
+
+/* See MozTabbrowserTabs::#clipUnderStickyElements. A side that isn't covered
+ * extends well past the border box, leaving room for what's drawn outside of
+ * it, like the tab group line. */
+#tabbrowser-tabs[orient="horizontal"]:not([movingtab])
+  :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container, .tab-group-overflow-count-container)[stickycovered] {
+  clip-path: polygon(
+    var(--tab-sticky-covered-start, -200%) -100%,
+    calc(100% - var(--tab-sticky-covered-end, -200%)) -100%,
+    calc(100% - var(--tab-sticky-covered-end, -200%)) 200%,
+    var(--tab-sticky-covered-start, -200%) 200%
+  );
+
+  &:-moz-locale-dir(rtl) {
+    clip-path: polygon(
+      calc(100% - var(--tab-sticky-covered-start, -200%)) -100%,
+      var(--tab-sticky-covered-end, -200%) -100%,
+      var(--tab-sticky-covered-end, -200%) 200%,
+      calc(100% - var(--tab-sticky-covered-start, -200%)) 200%
+    );
   }
 }
 

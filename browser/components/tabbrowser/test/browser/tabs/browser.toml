@@ -553,6 +553,8 @@ tags = "vertical-tabs"
 
 ["browser_tab_groups_list.js"]
 
+["browser_tab_groups_sticky_label.js"]
+
 ["browser_tab_groups_tabContextMenu.js"]
 tags = "vertical-tabs"
 
