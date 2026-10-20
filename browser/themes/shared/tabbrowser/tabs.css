@@ -2062,7 +2062,13 @@ tab-group {
   }
 }
 
-/* See MozTabbrowserTabs::#clipUnderStickyGroupLabel. Only the start side is
+/* See MozTabbrowserTabs::#updateStickyGroupLabel. */
+#tabbrowser-tabs[orient="horizontal"]:not([movingtab]) :is(.tab-group-label-container, tab-group > .tabbrowser-tab, tab-group > tab-split-view-wrapper)[stuck] {
+  translate: var(--tab-strip-sticky-offset) 0;
+  z-index: 2;
+}
+
+/* See MozTabbrowserTabs::#clipUnderStickyElements. Only the start side is
  * clipped, leaving room for what's drawn outside the border box, like the
  * tab group line. */
 #tabbrowser-tabs[orient="horizontal"]:not([movingtab]) :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container)[stickylabelcovered] {
@@ -2079,12 +2085,6 @@ tab-group {
 }
 
 .tab-group-label-container {
-  /* See MozTabbrowserTabs::#updateStickyGroupLabel. */
-  #tabbrowser-tabs[orient="horizontal"]:not([movingtab]) &[stuck] {
-    translate: var(--tab-group-label-sticky-offset) 0;
-    z-index: 2;
-  }
-
   &[dragtarget] {
     z-index: 3;
     position: absolute;

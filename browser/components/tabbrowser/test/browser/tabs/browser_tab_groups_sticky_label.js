@@ -129,6 +129,48 @@ add_task(async function test_active_group_label_sticks_while_scrolling() {
   await scrollTo(scrollPositionOf(nextGroupedTabs.at(-1)) + 2);
   isLabelAtStart("Scrolled past the next group");
 
+  Assert.ok(middleTab.hasAttribute("stuck"), "Selected tab is stuck");
+  Assert.less(
+    Math.abs(rect(middleTab).left - rect(labelContainer).right),
+    1,
+    "Selected tab is kept right after the label"
+  );
+  let midY = rect(middleTab).top + rect(middleTab).height / 2;
+  middleTab.style.pointerEvents = "none";
+  let underSelectedTab = document.elementFromPoint(
+    rect(middleTab).left + rect(middleTab).width / 2,
+    midY
+  );
+  middleTab.style.pointerEvents = "";
+  Assert.ok(
+    !underSelectedTab?.closest(".tabbrowser-tab, .tab-group-label-container"),
+    "What's scrolled underneath the selected tab is clipped"
+  );
+
+  EventUtils.synthesizeMouseAtCenter(middleTab, {});
+  await waitForNextFrame();
+  await waitForNextFrame();
+  Assert.ok(
+    !middleTab.hasAttribute("stuck"),
+    "Clicking the stuck selected tab scrolls it back into place"
+  );
+  Assert.equal(gBrowser.selectedTab, middleTab, "Tab stays selected");
+  Assert.less(
+    Math.abs(rect(middleTab).left - rect(labelContainer).right),
+    1,
+    "Selected tab is right after the label"
+  );
+  let tabAfterMiddleTab = groupedTabs[groupedTabs.indexOf(middleTab) + 1];
+  Assert.less(
+    Math.abs(rect(tabAfterMiddleTab).left - rect(middleTab).right),
+    1,
+    "Selected tab is followed by the tab after it"
+  );
+  Assert.ok(
+    !tabAfterMiddleTab.hasAttribute("stickylabelcovered"),
+    "The tab after the selected tab isn't clipped"
+  );
+
   await scrollTo(
     scrollPositionOf(groupedTabs[0]) - 3 * rect(labelContainer).width
   );
