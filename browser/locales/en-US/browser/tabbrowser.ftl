@@ -341,6 +341,10 @@ tab-group-editor-action-new-tab =
     .label = New tab in group
 tab-group-editor-action-new-window =
     .label = Move group to new window
+tab-group-editor-action-move-to-start =
+    .label = Move group to start
+tab-group-editor-action-move-to-end =
+    .label = Move group to end
 # Variables:
 #  $linkCount (Number): the number of shareable links in the group.
 tab-group-editor-action-copy-links =

@@ -353,6 +353,110 @@ add_task(async function test_moveGroupToNewWindow() {
 });
 
 /**
+ * Tests that "move group to start" and "move group to end" move the whole
+ * group, keeping it after the pinned tabs.
+ */
+add_task(async function test_moveGroupToStartAndEnd() {
+  let pinnedTab = BrowserTestUtils.addTab(gBrowser, "about:blank", {
+    skipAnimation: true,
+  });
+  gBrowser.pinTab(pinnedTab);
+  let groupedTabs = [
+    BrowserTestUtils.addTab(gBrowser, "about:blank", { skipAnimation: true }),
+    BrowserTestUtils.addTab(gBrowser, "about:blank", { skipAnimation: true }),
+  ];
+  let lastTab = BrowserTestUtils.addTab(gBrowser, "about:blank", {
+    skipAnimation: true,
+  });
+  let { tabgroupEditor, group } = await createTabGroupAndOpenEditPanel(
+    groupedTabs,
+    "test_moveGroupToStartAndEnd"
+  );
+  let moveToStart = document.getElementById("tabGroupEditor_moveGroupToStart");
+  let moveToEnd = document.getElementById("tabGroupEditor_moveGroupToEnd");
+  let reopenPanel = async () => {
+    let panelShown = BrowserTestUtils.waitForPopupEvent(
+      tabgroupEditor.panel,
+      "shown"
+    );
+    tabgroupEditor.openEditModal(group);
+    await panelShown;
+  };
+  let clickAndWaitForPanelHidden = async button => {
+    let panelHidden = BrowserTestUtils.waitForPopupEvent(
+      tabgroupEditor.panel,
+      "hidden"
+    );
+    button.click();
+    await panelHidden;
+  };
+
+  Assert.deepEqual(
+    gBrowser.tabs.slice(-2),
+    groupedTabs,
+    "New group is at the end"
+  );
+  Assert.ok(!moveToStart.disabled, "Move to start is enabled at the end");
+  Assert.ok(moveToEnd.disabled, "Move to end is disabled at the end");
+
+  Services.fog.testResetFOG();
+  await clickAndWaitForPanelHidden(moveToStart);
+  Assert.equal(
+    Glean.tabgroup.groupInteractions.move_to_start.testGetValue(),
+    1,
+    "Moving the group to the start is recorded"
+  );
+  Assert.equal(
+    Glean.tabgroup.groupInteractions.move_to_end.testGetValue(),
+    null,
+    "Moving the group to the end isn't recorded yet"
+  );
+  Assert.equal(gBrowser.tabs[0], pinnedTab, "Pinned tab stays first");
+  Assert.deepEqual(
+    gBrowser.tabs.slice(1, 3),
+    groupedTabs,
+    "Group is moved right after the pinned tab"
+  );
+  Assert.equal(groupedTabs[0].group, group, "Tabs stay in the group");
+
+  await reopenPanel();
+  Assert.ok(moveToStart.disabled, "Move to start is disabled at the start");
+  Assert.ok(!moveToEnd.disabled, "Move to end is enabled at the start");
+
+  await clickAndWaitForPanelHidden(moveToEnd);
+  Assert.equal(
+    Glean.tabgroup.groupInteractions.move_to_end.testGetValue(),
+    1,
+    "Moving the group to the end is recorded"
+  );
+  Assert.deepEqual(
+    gBrowser.tabs.slice(-2),
+    groupedTabs,
+    "Group is moved to the end"
+  );
+  Assert.equal(
+    gBrowser.tabs.at(-3),
+    lastTab,
+    "Last ungrouped tab is right before the group"
+  );
+  Assert.equal(groupedTabs[0].group, group, "Tabs stay in the group");
+
+  await reopenPanel();
+  Assert.ok(!moveToStart.disabled, "Move to start is enabled again");
+  Assert.ok(moveToEnd.disabled, "Move to end is disabled again");
+  let panelHidden = BrowserTestUtils.waitForPopupEvent(
+    tabgroupEditor.panel,
+    "hidden"
+  );
+  tabgroupEditor.panel.hidePopup();
+  await panelHidden;
+
+  await removeTabGroup(group);
+  BrowserTestUtils.removeTab(lastTab);
+  BrowserTestUtils.removeTab(pinnedTab);
+});
+
+/**
  * The "save & close" button in the tabgroup menu should be disabled if the
  * group is not saveable.
  */

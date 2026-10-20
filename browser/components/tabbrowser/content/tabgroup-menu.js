@@ -93,6 +93,18 @@
         </toolbarbutton>
         <toolbarbutton
           tabindex="0"
+          id="tabGroupEditor_moveGroupToStart"
+          class="subviewbutton"
+          data-l10n-id="tab-group-editor-action-move-to-start">
+        </toolbarbutton>
+        <toolbarbutton
+          tabindex="0"
+          id="tabGroupEditor_moveGroupToEnd"
+          class="subviewbutton"
+          data-l10n-id="tab-group-editor-action-move-to-end">
+        </toolbarbutton>
+        <toolbarbutton
+          tabindex="0"
           id="tabGroupEditor_shareTabGroup"
           class="subviewbutton"
           badged="true"
@@ -483,6 +495,12 @@
         moveGroupToNewWindow: document.getElementById(
           "tabGroupEditor_moveGroupToNewWindow"
         ),
+        moveGroupToStart: document.getElementById(
+          "tabGroupEditor_moveGroupToStart"
+        ),
+        moveGroupToEnd: document.getElementById(
+          "tabGroupEditor_moveGroupToEnd"
+        ),
         copyAllLinks: document.getElementById("tabGroupEditor_copyAllLinks"),
         createAITab: document.getElementById("tabGroupEditor_createAITab"),
         ungroupTabs: document.getElementById("tabGroupEditor_ungroupTabs"),
@@ -507,6 +525,14 @@
           });
         }
       );
+
+      this.#commandButtons.moveGroupToStart.addEventListener("command", () => {
+        this.#moveActiveGroup({ toStart: true });
+      });
+
+      this.#commandButtons.moveGroupToEnd.addEventListener("command", () => {
+        this.#moveActiveGroup({ toStart: false });
+      });
 
       this.#commandButtons.copyAllLinks.addEventListener("command", () => {
         let links = this.#getGroupLinks(this.activeGroup);
@@ -969,6 +995,7 @@
       });
       document.getElementById("tabGroupEditor_moveGroupToNewWindow").disabled =
         gBrowser.openTabs.length == this.activeGroup?.tabs.length;
+      this.#updateMoveGroupButtons();
       let linkCount = this.#getGroupLinks(this.activeGroup).length;
       document.l10n.setAttributes(
         this.#commandButtons.copyAllLinks,
@@ -977,6 +1004,38 @@
       );
       this.#commandButtons.copyAllLinks.disabled = !linkCount;
       this.#maybeDisableOrHideSaveButton();
+    }
+
+    #updateMoveGroupButtons() {
+      let groupTabs = this.activeGroup?.tabs ?? [];
+      let tabs = gBrowser.tabs;
+      this.#commandButtons.moveGroupToStart.disabled =
+        !groupTabs.length || groupTabs[0] == tabs[gBrowser.pinnedTabCount];
+      this.#commandButtons.moveGroupToEnd.disabled =
+        !groupTabs.length || groupTabs.at(-1) == tabs.at(-1);
+    }
+
+    /**
+     * @param {object} options
+     * @param {boolean} options.toStart
+     *   Whether to move the group to the start of the tab strip, right after
+     *   the pinned tabs, rather than to the end.
+     */
+    #moveActiveGroup({ toStart }) {
+      let group = this.activeGroup;
+      gBrowser.moveTabTo(group, {
+        tabIndex: toStart ? 0 : gBrowser.tabs.length - 1,
+        metricsContext: TabMetrics.userTriggeredContext(
+          TabMetrics.METRIC_SOURCE.TAB_GROUP_MENU
+        ),
+      });
+      Glean.tabgroup.groupInteractions[
+        toStart ? "move_to_start" : "move_to_end"
+      ].add(1);
+      this.close();
+      gBrowser.tabContainer.arrowScrollbox?.ensureElementIsVisible(
+        group.labelElement
+      );
     }
 
     #maybeUpdateLayoutForNova() {
