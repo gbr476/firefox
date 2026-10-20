@@ -2000,7 +2000,7 @@ tab-group {
   }
 
   /* See MozTabbrowserTabs::#updateStickyGroupLabel. */
-  #tabbrowser-tabs[orient="horizontal"] &:not([collapsed]) > :is(.tabbrowser-tab, tab-split-view-wrapper) {
+  #tabbrowser-tabs[orient="horizontal"] & > :is(.tabbrowser-tab, tab-split-view-wrapper) {
     scroll-margin-inline-start: var(--tab-group-label-sticky-size, 0);
   }
 
@@ -2071,7 +2071,8 @@ tab-group {
 /* See MozTabbrowserTabs::#clipUnderStickyElements. A side that isn't covered
  * extends well past the border box, leaving room for what's drawn outside of
  * it, like the tab group line. */
-#tabbrowser-tabs[orient="horizontal"]:not([movingtab]) :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container)[stickycovered] {
+#tabbrowser-tabs[orient="horizontal"]:not([movingtab])
+  :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container, .tab-group-overflow-count-container)[stickycovered] {
   clip-path: polygon(
     var(--tab-sticky-covered-start, -200%) -100%,
     calc(100% - var(--tab-sticky-covered-end, -200%)) -100%,

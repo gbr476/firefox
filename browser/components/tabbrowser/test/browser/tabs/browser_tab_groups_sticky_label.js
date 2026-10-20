@@ -324,7 +324,7 @@ add_task(async function test_selected_tab_and_label_stick_to_the_end() {
   group.ungroupTabs();
 });
 
-add_task(async function test_collapsed_group_label_does_not_stick() {
+add_task(async function test_collapsed_group_sticks() {
   let tabs = gBrowser.tabs;
   let third = Math.floor(tabs.length / 3);
   let groupedTabs = tabs.slice(third, 2 * third);
@@ -333,23 +333,57 @@ add_task(async function test_collapsed_group_label_does_not_stick() {
     insertBefore: tabs[2 * third],
   });
   let labelContainer = group.labelContainerElement;
+  let selectedTab = groupedTabs[0];
   await BrowserTestUtils.allTabOpenAnimationsFinished(window);
 
-  gBrowser.selectedTab = groupedTabs[0];
+  gBrowser.selectedTab = selectedTab;
   let collapseFinished = BrowserTestUtils.waitForEvent(
     window,
     "TabGroupCollapse"
   );
   group.collapsed = true;
   await collapseFinished;
+  await TestUtils.waitForCondition(
+    () => rect(groupedTabs[1]).width == 0,
+    "Waiting for the group's other tabs to collapse"
+  );
   await waitForNextFrame();
 
-  await scrollTo(scrollPositionOf(groupedTabs[0]) + 5);
+  let tabWidth = rect(tabs[2 * third]).width;
+  let groupEnd = scrollPositionOf(selectedTab) + rect(selectedTab).width;
+  await scrollTo(groupEnd + 3 * tabWidth);
+  Assert.ok(labelContainer.hasAttribute("stuck"), "Label is stuck");
+  Assert.less(
+    Math.abs(rect(labelContainer).left - rect(scrollbox).left),
+    1,
+    "Label is kept at the start of the tab strip"
+  );
+  Assert.ok(selectedTab.hasAttribute("stuck"), "Selected tab is stuck");
+  Assert.less(
+    Math.abs(rect(selectedTab).left - rect(labelContainer).right),
+    1,
+    "Selected tab is kept right after the label"
+  );
+
+  EventUtils.synthesizeMouseAtCenter(selectedTab, {});
+  await waitForNextFrame();
+  await waitForNextFrame();
   Assert.ok(
-    !labelContainer.hasAttribute("stuck"),
-    "Label of a collapsed group doesn't stick"
+    !selectedTab.hasAttribute("stuck"),
+    "Clicking the stuck selected tab scrolls it back into place"
+  );
+  Assert.less(
+    Math.abs(rect(selectedTab).left - rect(labelContainer).right),
+    1,
+    "Selected tab is right after the label"
+  );
+  Assert.greaterOrEqual(
+    Math.round(rect(labelContainer).left),
+    Math.round(rect(scrollbox).left),
+    "Label is in view"
   );
 
   gBrowser.selectedTab = tabs[0];
+  group.collapsed = false;
   group.ungroupTabs();
 });

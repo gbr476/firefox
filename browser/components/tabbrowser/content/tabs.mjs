@@ -1526,8 +1526,7 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
       !lazy.stickyActiveGroupLabel ||
       !this.arrowScrollbox ||
       this.verticalMode ||
-      this.#isMovingTab() ||
-      group?.collapsed
+      this.#isMovingTab()
     ) {
       group = null;
     }
@@ -1631,6 +1630,14 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
           : (item.splitview ?? item);
         if (!item.pinned && elements.at(-1) != element) {
           elements.push(element);
+          if (
+            isTab(item) &&
+            item.selected &&
+            item.group?.collapsed &&
+            item.group.overflowContainer.checkVisibility()
+          ) {
+            elements.push(item.group.overflowContainer);
+          }
         }
       }
       let forEachOverlapping = (range, callback) => {
