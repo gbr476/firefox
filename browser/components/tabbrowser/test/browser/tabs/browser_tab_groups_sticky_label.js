@@ -167,7 +167,7 @@ add_task(async function test_active_group_label_sticks_while_scrolling() {
     "Selected tab is followed by the tab after it"
   );
   Assert.ok(
-    !tabAfterMiddleTab.hasAttribute("stickylabelcovered"),
+    !tabAfterMiddleTab.hasAttribute("stickycovered"),
     "The tab after the selected tab isn't clipped"
   );
 
@@ -213,6 +213,115 @@ add_task(async function test_active_group_label_sticks_while_scrolling() {
   gBrowser.selectedTab = tabs[0];
   group.ungroupTabs();
   nextGroup.ungroupTabs();
+});
+
+add_task(async function test_selected_tab_and_label_stick_to_the_end() {
+  let tabs = gBrowser.tabs;
+  let third = Math.floor(tabs.length / 3);
+  let groupedTabs = tabs.slice(third, 2 * third);
+  let group = gBrowser.addTabGroup(groupedTabs, {
+    label: "end",
+    insertBefore: tabs[2 * third],
+  });
+  let labelContainer = group.labelContainerElement;
+  await BrowserTestUtils.allTabOpenAnimationsFinished(window);
+  let isClipped = (element, x, msg) => {
+    let midY = rect(element).top + rect(element).height / 2;
+    element.style.pointerEvents = "none";
+    let under = document.elementFromPoint(x, midY);
+    element.style.pointerEvents = "";
+    Assert.ok(
+      !under?.closest(".tabbrowser-tab, .tab-group-label-container"),
+      msg
+    );
+  };
+
+  let firstTab = groupedTabs[0];
+  gBrowser.selectedTab = firstTab;
+  await waitForNextFrame();
+  let firstTabEnd = scrollPositionOf(firstTab) + rect(firstTab).width;
+  await scrollTo(
+    firstTabEnd - scrollbox.clientWidth - 3 * rect(firstTab).width
+  );
+  Assert.ok(firstTab.hasAttribute("stuck"), "Selected tab is stuck");
+  Assert.less(
+    Math.abs(rect(firstTab).right - rect(scrollbox).right),
+    1,
+    "Selected tab is kept at the end of the tab strip"
+  );
+  Assert.ok(labelContainer.hasAttribute("stuck"), "Label is stuck");
+  Assert.less(
+    Math.abs(rect(labelContainer).right - rect(firstTab).left),
+    1,
+    "Label is kept right before the selected tab"
+  );
+  isClipped(
+    firstTab,
+    rect(firstTab).left + rect(firstTab).width / 2,
+    "What's scrolled underneath the selected tab is clipped"
+  );
+  isClipped(
+    labelContainer,
+    rect(labelContainer).left + 2,
+    "What's scrolled underneath the label is clipped"
+  );
+  Assert.ok(
+    document
+      .elementFromPoint(
+        rect(labelContainer).left - 2,
+        rect(firstTab).top + rect(firstTab).height / 2
+      )
+      ?.closest(".tabbrowser-tab"),
+    "What's before the label is not clipped"
+  );
+
+  EventUtils.synthesizeMouseAtCenter(firstTab, {});
+  await waitForNextFrame();
+  await waitForNextFrame();
+  Assert.ok(
+    !firstTab.hasAttribute("stuck"),
+    "Clicking the stuck selected tab scrolls it back into place"
+  );
+  Assert.equal(gBrowser.selectedTab, firstTab, "Tab stays selected");
+  Assert.less(
+    Math.abs(rect(firstTab).right - rect(scrollbox).right),
+    1,
+    "Selected tab is at the end of the tab strip"
+  );
+  Assert.ok(
+    !labelContainer.hasAttribute("stuck"),
+    "Label is back at its regular position, right before the selected tab"
+  );
+
+  let middleTab = groupedTabs[Math.floor(groupedTabs.length / 2)];
+  gBrowser.selectedTab = middleTab;
+  await waitForNextFrame();
+  await waitForNextFrame();
+  let middleTabEnd = scrollPositionOf(middleTab) + rect(middleTab).width;
+  let target = middleTabEnd - scrollbox.clientWidth - 2 * rect(middleTab).width;
+  let labelScrolledOutAtStart = scrollPositionOf(labelContainer) < target;
+  await scrollTo(target);
+  Assert.ok(middleTab.hasAttribute("stuck"), "Selected tab is stuck");
+  Assert.less(
+    Math.abs(rect(middleTab).right - rect(scrollbox).right),
+    1,
+    "Selected tab is kept at the end of the tab strip"
+  );
+  if (labelScrolledOutAtStart) {
+    Assert.less(
+      Math.abs(rect(labelContainer).left - rect(scrollbox).left),
+      1,
+      "Label scrolled out at the start stays at the start"
+    );
+  } else {
+    Assert.ok(
+      !labelContainer.hasAttribute("stuck"),
+      "Label still in view stays at its regular position"
+    );
+  }
+
+  gBrowser.selectedTab = tabs[0];
+  group.ungroupTabs();
 });
 
 add_task(async function test_collapsed_group_label_does_not_stick() {

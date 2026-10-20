@@ -2068,18 +2068,23 @@ tab-group {
   z-index: 2;
 }
 
-/* See MozTabbrowserTabs::#clipUnderStickyElements. Only the start side is
- * clipped, leaving room for what's drawn outside the border box, like the
- * tab group line. */
-#tabbrowser-tabs[orient="horizontal"]:not([movingtab]) :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container)[stickylabelcovered] {
-  clip-path: polygon(var(--tab-sticky-label-covered-size) -100%, 300% -100%, 300% 200%, var(--tab-sticky-label-covered-size) 200%);
+/* See MozTabbrowserTabs::#clipUnderStickyElements. A side that isn't covered
+ * extends well past the border box, leaving room for what's drawn outside of
+ * it, like the tab group line. */
+#tabbrowser-tabs[orient="horizontal"]:not([movingtab]) :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container)[stickycovered] {
+  clip-path: polygon(
+    var(--tab-sticky-covered-start, -200%) -100%,
+    calc(100% - var(--tab-sticky-covered-end, -200%)) -100%,
+    calc(100% - var(--tab-sticky-covered-end, -200%)) 200%,
+    var(--tab-sticky-covered-start, -200%) 200%
+  );
 
   &:-moz-locale-dir(rtl) {
     clip-path: polygon(
-      calc(100% - var(--tab-sticky-label-covered-size)) -100%,
-      -200% -100%,
-      -200% 200%,
-      calc(100% - var(--tab-sticky-label-covered-size)) 200%
+      calc(100% - var(--tab-sticky-covered-start, -200%)) -100%,
+      var(--tab-sticky-covered-end, -200%) -100%,
+      var(--tab-sticky-covered-end, -200%) 200%,
+      calc(100% - var(--tab-sticky-covered-start, -200%)) 200%
     );
   }
 }

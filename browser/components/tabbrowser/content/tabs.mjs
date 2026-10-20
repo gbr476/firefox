@@ -46,14 +46,21 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
    */
   #stickySelectedElement = null;
 
+  /**
+   * Set from TabSelect until the selected tab got scrolled into view, so that
+   * it isn't stuck at the edge in the meantime, where scrolling it into view
+   * would consider it visible already.
+   */
+  #scrollingSelectedTabIntoView = false;
+
   #stickyLabelUpdateFrame = 0;
 
   /**
-   * Elements clipped where the sticky group label covers them.
+   * Elements clipped where the sticky group label or selected tab cover them.
    *
    * @type {Set<MozXULElement>}
    */
-  #stickyLabelCoveredElements = new Set();
+  #stickyCoveredElements = new Set();
 
   /** @type {Set<MozTabbrowserTab>} */
   #openingTabs = new Set();
@@ -303,11 +310,15 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
     }
     // Before _handleTabSelect so the label size used as the tabs'
     // scroll-margin is up to date when the tab gets scrolled into view.
+    this.#scrollingSelectedTabIntoView = true;
     this.#scheduleStickyGroupLabelUpdate();
     this._handleTabSelect();
     // And again in the same frame the tab got scrolled into view, as the
     // resulting scroll event only comes in the next frame.
-    window.requestAnimationFrame(() => this.#updateStickyGroupLabel());
+    window.requestAnimationFrame(() => {
+      this.#scrollingSelectedTabIntoView = false;
+      this.#updateStickyGroupLabel();
+    });
   }
 
   on_TabClose(event) {
@@ -1501,7 +1512,10 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
    * the start of the scrollbox, on top of the tabs scrolled underneath it,
    * until the strip is scrolled back to the label's regular position. The
    * selected tab (or its split view) likewise stays right after the stuck
-   * label while its regular position is scrolled out of view.
+   * label while its regular position is scrolled out of view. Mirrored at
+   * the end of the scrollbox: once the selected tab is scrolled out of view
+   * that way, it stays at the end, preceded by the label if the label would
+   * otherwise be underneath it.
    *
    * Tab groups are `display: contents` so that all tabs share the tab strip's
    * space evenly, which means `position: sticky` can't be used here.
@@ -1545,26 +1559,47 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
 
     let labelOffset = 0;
     let selectedOffset = 0;
-    let scrollStart = 0;
-    let coveredEnd = 0;
+    let startCover = null;
+    let endCover = null;
     if (this.overflowing) {
       // Inline coordinates, growing towards the end of the tab strip.
       let start = rect => (RTL_UI ? -rect.right : rect.left);
-      scrollStart = start(this.arrowScrollbox.scrollClientRect);
-      coveredEnd = scrollStart;
+      let end = rect => (RTL_UI ? -rect.left : rect.right);
+      let scrollRect = this.arrowScrollbox.scrollClientRect;
+      let scrollStart = start(scrollRect);
+      let scrollEnd = end(scrollRect);
+      let selectedRect = this.#layoutRect(selected);
+      let canStickSelected = !this.#scrollingSelectedTabIntoView;
+
       labelOffset = Math.max(scrollStart - start(labelRect), 0);
       if (labelOffset) {
-        coveredEnd += labelRect.width;
-        let selectedRect = this.#layoutRect(selected);
-        selectedOffset = Math.max(coveredEnd - start(selectedRect), 0);
+        let coveredEnd = scrollStart + labelRect.width;
+        if (canStickSelected) {
+          selectedOffset = Math.max(coveredEnd - start(selectedRect), 0);
+        }
         if (selectedOffset) {
           coveredEnd += selectedRect.width;
+        }
+        startCover = [scrollStart, coveredEnd];
+      }
+
+      if (canStickSelected && !selectedOffset) {
+        selectedOffset = -Math.max(end(selectedRect) - scrollEnd, 0);
+        if (selectedOffset) {
+          let coveredStart = scrollEnd - selectedRect.width;
+          if (!labelOffset) {
+            labelOffset = -Math.max(end(labelRect) - coveredStart, 0);
+            if (labelOffset) {
+              coveredStart -= labelRect.width;
+            }
+          }
+          endCover = [coveredStart, scrollEnd];
         }
       }
     }
     this.#setStickyOffset(labelContainer, labelOffset);
     this.#setStickyOffset(selected, selectedOffset);
-    this.#clipUnderStickyElements(scrollStart, coveredEnd, [
+    this.#clipUnderStickyElements(startCover, endCover, [
       labelContainer,
       selected,
     ]);
@@ -1576,16 +1611,17 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
    * that whatever the theme or the native titlebar draw behind the tab strip
    * shows around them.
    *
-   * @param {number} [coveredStart]
-   * @param {number} [coveredEnd]
-   *   The covered range in inline coordinates, see #updateStickyGroupLabel.
-   *   Nothing is clipped when it's empty or omitted.
+   * @param {number[]|null} [startCover]
+   * @param {number[]|null} [endCover]
+   *   The ranges covered at the start and at the end of the scrollbox, as
+   *   [from, to] in inline coordinates, see #updateStickyGroupLabel. Elements
+   *   are clipped on the side facing the respective end of the scrollbox.
    * @param {MozXULElement[]} [stuckElements]
    */
-  #clipUnderStickyElements(coveredStart = 0, coveredEnd = 0, stuckElements) {
-    /** @type {Map<MozXULElement, number>} */
+  #clipUnderStickyElements(startCover = null, endCover = null, stuckElements) {
+    /** @type {Map<MozXULElement, {start: number, end: number}>} */
     let covered = new Map();
-    if (coveredEnd > coveredStart) {
+    if (startCover || endCover) {
       let start = rect => (RTL_UI ? -rect.right : rect.left);
       let end = rect => (RTL_UI ? -rect.left : rect.right);
       let elements = [];
@@ -1597,40 +1633,64 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
           elements.push(element);
         }
       }
-
-      let low = 0;
-      let high = elements.length;
-      while (low < high) {
-        let mid = (low + high) >> 1;
-        if (end(this.#layoutRect(elements[mid])) <= coveredStart) {
-          low = mid + 1;
-        } else {
-          high = mid;
+      let forEachOverlapping = (range, callback) => {
+        let [from, to] = range;
+        let low = 0;
+        let high = elements.length;
+        while (low < high) {
+          let mid = (low + high) >> 1;
+          if (end(this.#layoutRect(elements[mid])) <= from) {
+            low = mid + 1;
+          } else {
+            high = mid;
+          }
         }
+        for (let i = low; i < elements.length; i++) {
+          let element = elements[i];
+          let rect = this.#layoutRect(element);
+          if (start(rect) >= to) {
+            break;
+          }
+          if (!stuckElements.includes(element)) {
+            let sizes = covered.get(element) ?? { start: 0, end: 0 };
+            callback(sizes, start(rect), end(rect));
+            covered.set(element, sizes);
+          }
+        }
+      };
+      if (startCover) {
+        forEachOverlapping(startCover, (sizes, elementStart) => {
+          sizes.start = startCover[1] - elementStart;
+        });
       }
-      for (let i = low; i < elements.length; i++) {
-        let element = elements[i];
-        let elementStart = start(this.#layoutRect(element));
-        if (elementStart >= coveredEnd) {
-          break;
-        }
-        if (!stuckElements.includes(element)) {
-          covered.set(element, coveredEnd - elementStart);
-        }
+      if (endCover) {
+        forEachOverlapping(endCover, (sizes, elementStart, elementEnd) => {
+          sizes.end = elementEnd - endCover[0];
+        });
       }
     }
 
-    for (let element of this.#stickyLabelCoveredElements) {
+    for (let element of this.#stickyCoveredElements) {
       if (!covered.has(element)) {
-        element.removeAttribute("stickylabelcovered");
-        element.style.removeProperty("--tab-sticky-label-covered-size");
+        element.removeAttribute("stickycovered");
+        element.style.removeProperty("--tab-sticky-covered-start");
+        element.style.removeProperty("--tab-sticky-covered-end");
       }
     }
-    for (let [element, size] of covered) {
-      element.setAttribute("stickylabelcovered", "true");
-      element.style.setProperty("--tab-sticky-label-covered-size", `${size}px`);
+    for (let [element, sizes] of covered) {
+      element.setAttribute("stickycovered", "true");
+      for (let side of ["start", "end"]) {
+        if (sizes[side]) {
+          element.style.setProperty(
+            `--tab-sticky-covered-${side}`,
+            `${sizes[side]}px`
+          );
+        } else {
+          element.style.removeProperty(`--tab-sticky-covered-${side}`);
+        }
+      }
     }
-    this.#stickyLabelCoveredElements = new Set(covered.keys());
+    this.#stickyCoveredElements = new Set(covered.keys());
   }
 
   /**
@@ -1684,8 +1744,9 @@ export class MozTabbrowserTabs extends MozElements.TabsBase {
   }
 
   /**
-   * Scrolls the stuck selected tab back to its regular position, right after
-   * the stuck group label, bringing the tabs that follow it into view.
+   * Scrolls the stuck selected tab back to its regular position, next to the
+   * stuck group label at the start or at the end of the scrollbox, bringing
+   * its neighbouring tabs into view.
    *
    * @param {MozXULElement} element
    *   The selected tab, or its split view.
