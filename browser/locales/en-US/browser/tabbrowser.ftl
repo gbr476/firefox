@@ -378,6 +378,27 @@ tab-context-ungroup-tab =
            *[other] Remove from Groups
         }
     .accesskey = R
+# Pinning a tab to its group keeps the tab and the group's label in view while
+# the tab strip is scrolled, unlike "Pin Tab", which moves the tab out of the
+# scrolled tabs.
+# Variables:
+#  $tabCount (Number): the number of tabs in groups to pin or unpin.
+tab-context-pin-tab-to-group =
+    .label =
+        { $tabCount ->
+            [1] Pin Tab to Group
+           *[other] Pin Tabs to Groups
+        }
+    .accesskey = i
+# Variables:
+#  $tabCount (Number): the number of tabs in groups to unpin.
+tab-context-unpin-tab-from-group =
+    .label =
+        { $tabCount ->
+            [1] Unpin Tab from Group
+           *[other] Unpin Tabs from Groups
+        }
+    .accesskey = i
 
 ## The tab groups list provides a list of all open tab groups and saved tab
 ## groups in one place. When the user has no tab groups, the list instead

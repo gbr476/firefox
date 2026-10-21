@@ -59,6 +59,9 @@ document.addEventListener(
         case "context_ungroupSplitView":
           TabContextMenu.ungroupTabsAndSplitViews();
           break;
+        case "context_pinTabToGroup":
+          TabContextMenu.togglePinTabToGroup();
+          break;
         case "context_moveSplitViewToNewGroup":
           TabContextMenu.moveSplitViewToNewGroup();
           break;

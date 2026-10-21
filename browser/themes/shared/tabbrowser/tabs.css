@@ -1090,6 +1090,29 @@ tab-split-view-wrapper[dragtarget] {
     box-shadow: var(--tab-box-shadow-selected);
   }
 
+  /* Tabs pinned to their group take on a shade of the group's color, like
+   * the group's label (see MozTabbrowserTab::pinnedToGroup). */
+  tab-group > .tabbrowser-tab[pinnedtogroup] > .tab-stack > & {
+    --tab-pinned-to-group-color: var(--tab-group-color);
+    @media -moz-pref("browser.nova.enabled") {
+      --tab-pinned-to-group-color: var(--tab-group-background-color);
+    }
+
+    background-color: color-mix(in srgb, var(--tab-pinned-to-group-color) 25%, var(--tab-background-color));
+
+    color: var(--tab-text-color);
+
+    .tabbrowser-tab:hover > .tab-stack > &:not([selected], [multiselected]) {
+      background-color: color-mix(in srgb, var(--tab-pinned-to-group-color) 35%, var(--tab-background-color-hover));
+      color: var(--tab-text-color-hover);
+    }
+
+    &:is([selected], [multiselected]) {
+      background-color: color-mix(in srgb, var(--tab-pinned-to-group-color) 45%, var(--tab-background-color-selected));
+      color: var(--tab-text-color-selected);
+    }
+  }
+
   @media -moz-pref("browser.nova.enabled") {
     border: 1px solid transparent;
     background-clip: border-box;
@@ -1999,11 +2022,6 @@ tab-group {
     --tab-group-line-color: var(--tab-group-background-color);
   }
 
-  /* See MozTabbrowserTabs::#updateStickyGroupLabel. */
-  #tabbrowser-tabs[orient="horizontal"] & > :is(.tabbrowser-tab, tab-split-view-wrapper) {
-    scroll-margin-inline-start: var(--tab-group-label-sticky-size, 0);
-  }
-
   #tabbrowser-tabs[orient="horizontal"] &[movingtabgroup][collapsed] > .tabbrowser-tab[visuallyselected],
   #tabbrowser-tabs[orient="horizontal"] &[collapsed] > .tabbrowser-tab:not([visuallyselected], [multiselected]) {
     min-width: 0 !important;
@@ -2060,6 +2078,13 @@ tab-group {
   #tabbrowser-tabs[orient="vertical"][expanded] & {
     contain: inline-size;
   }
+}
+
+/* See MozTabbrowserTabs::#updateStickyGroupLabel: room for what's stuck at
+ * either end of the tab strip when an element gets scrolled into view. */
+#tabbrowser-tabs[orient="horizontal"] #tabbrowser-arrowscrollbox :is(.tabbrowser-tab, tab-split-view-wrapper, .tab-group-label-container) {
+  scroll-margin-inline-start: var(--tab-strip-sticky-start, var(--tab-strip-sticky-reserve, 0));
+  scroll-margin-inline-end: var(--tab-strip-sticky-end, var(--tab-strip-sticky-reserve, 0));
 }
 
 /* See MozTabbrowserTabs::#updateStickyGroupLabel. */

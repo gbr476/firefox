@@ -45,6 +45,7 @@ var TabContextMenu = {
               "#context_moveTabToGroup",
               "#context_ungroupTab",
               "#context_ungroupSplitView",
+              "#context_pinTabToGroup",
             ],
             [
               "#context_moveTabToSplitView",
@@ -227,6 +228,7 @@ var TabContextMenu = {
               "#context_moveTabToGroup",
               "#context_ungroupTab",
               "#context_ungroupSplitView",
+              "#context_pinTabToGroup",
             ],
             "#context_reopenInContainer",
             /*
@@ -740,6 +742,25 @@ var TabContextMenu = {
       contextUngroupTab.hidden = true;
       contextMoveSplitViewToNewGroup.hidden = true;
       contextUngroupSplitView.hidden = true;
+    }
+
+    let contextPinTabToGroup = document.getElementById("context_pinTabToGroup");
+    let groupedContextTabs = this.contextTabs.filter(tab => tab.group);
+    contextPinTabToGroup.hidden =
+      !TabContextMenu.Tabbrowser.prefs.tabGroupsEnabled ||
+      !groupedContextTabs.length ||
+      !Services.prefs.getBoolPref(
+        "browser.tabs.groups.stickyActiveLabel",
+        true
+      );
+    if (!contextPinTabToGroup.hidden) {
+      document.l10n.setAttributes(
+        contextPinTabToGroup,
+        this.contextTab.pinnedToGroup
+          ? "tab-context-unpin-tab-from-group"
+          : "tab-context-pin-tab-to-group",
+        { tabCount: groupedContextTabs.length }
+      );
     }
 
     this._updateMoveTabToFlattenedVisibility(
@@ -1402,6 +1423,19 @@ var TabContextMenu = {
         gBrowser.TabMetrics.METRIC_SOURCE.TAB_MENU
       ),
     });
+  },
+
+  /**
+   * Pins the context tabs to their tab groups, or unpins them, depending on
+   * the context tab's state.
+   */
+  togglePinTabToGroup() {
+    let pinned = !this.contextTab.pinnedToGroup;
+    for (let tab of this.contextTabs) {
+      if (tab.group) {
+        tab.pinnedToGroup = pinned;
+      }
+    }
   },
 
   ungroupTabsAndSplitViews() {

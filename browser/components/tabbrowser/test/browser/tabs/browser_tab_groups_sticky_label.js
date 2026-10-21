@@ -419,7 +419,11 @@ add_task(async function test_scroll_buttons_skip_stuck_elements() {
     !tabBeforeMiddleTab.hasAttribute("stickycovered"),
     "Scrolling back by one element brings the tab before the start into view"
   );
-  assertRightAfter(tabBeforeMiddleTab, labelContainer, "That tab");
+  Assert.greaterOrEqual(
+    Math.round(rect(tabBeforeMiddleTab).left),
+    Math.round(rect(labelContainer).right),
+    "That tab is clear of the stuck label"
+  );
 
   let lastTab = groupedTabs.at(-1);
   await selectTab(lastTab);
@@ -436,11 +440,130 @@ add_task(async function test_scroll_buttons_skip_stuck_elements() {
     "The element scrolled out at the end is found underneath the stuck tab"
   );
   await clickScrollButton(arrowScrollbox._scrollButtonDown);
-  Assert.less(
-    Math.abs(rect(tabAtEnd).right - rect(scrollbox).right),
-    1,
+  Assert.ok(
+    !tabAtEnd.hasAttribute("stickycovered"),
     "Scrolling forward by one element brings the tab past the end into view"
   );
+  Assert.lessOrEqual(
+    Math.round(rect(tabAtEnd).right),
+    Math.round(rect(lastTab).left),
+    "That tab is clear of the stuck selected tab"
+  );
+
+  await selectTab(tabs[0]);
+  group.ungroupTabs();
+});
+
+add_task(async function test_tabs_pinned_to_group_stick() {
+  let { tabs, groupedTabs, group } = groupMiddleThird("pinned");
+  let labelContainer = group.labelContainerElement;
+  let pinnedTab = groupedTabs[2];
+  await BrowserTestUtils.allTabOpenAnimationsFinished(window);
+
+  let contextMenu = document.getElementById("tabContextMenu");
+  let menuItem = document.getElementById("context_pinTabToGroup");
+  let openContextMenuOn = async tab => {
+    let shown = BrowserTestUtils.waitForPopupEvent(contextMenu, "shown");
+    EventUtils.synthesizeMouseAtCenter(tab, {
+      type: "contextmenu",
+      button: 2,
+    });
+    await shown;
+  };
+  let closeContextMenu = async item => {
+    let hidden = BrowserTestUtils.waitForPopupEvent(contextMenu, "hidden");
+    if (item) {
+      contextMenu.activateItem(item);
+    } else {
+      contextMenu.hidePopup();
+    }
+    await hidden;
+  };
+
+  await selectTab(tabs[0]);
+  await openContextMenuOn(tabs[0]);
+  Assert.ok(menuItem.hidden, "Pin Tab to Group is hidden outside of groups");
+  await closeContextMenu();
+
+  await scrollTo(scrollPositionOf(labelContainer));
+  await openContextMenuOn(pinnedTab);
+  Assert.ok(!menuItem.hidden, "Pin Tab to Group is shown for a grouped tab");
+  Assert.equal(
+    menuItem.getAttribute("data-l10n-id"),
+    "tab-context-pin-tab-to-group",
+    "Menu item offers to pin the tab"
+  );
+  await closeContextMenu(menuItem);
+  Assert.ok(pinnedTab.pinnedToGroup, "Tab is pinned to its group");
+  let backgroundOf = tab =>
+    getComputedStyle(tab.querySelector(".tab-background")).backgroundColor;
+  Assert.notEqual(
+    backgroundOf(pinnedTab),
+    backgroundOf(groupedTabs[3]),
+    "Pinned tab's background takes on the group's color"
+  );
+  await openContextMenuOn(pinnedTab);
+  Assert.equal(
+    menuItem.getAttribute("data-l10n-id"),
+    "tab-context-unpin-tab-from-group",
+    "Menu item offers to unpin the tab"
+  );
+  await closeContextMenu();
+
+  await scrollTo(scrollbox.scrollWidth);
+  assertAtStart(labelContainer, "Label of the group with the pinned tab");
+  Assert.ok(pinnedTab.hasAttribute("stuck"), "Pinned tab is stuck");
+  assertRightAfter(pinnedTab, labelContainer, "Pinned tab");
+  assertCoversClipped(
+    pinnedTab,
+    rect(pinnedTab).left + rect(pinnedTab).width / 2,
+    "Pinned tab"
+  );
+
+  let scrollLeft = scrollbox.scrollLeft;
+  let tabSelected = BrowserTestUtils.waitForEvent(window, "TabSelect");
+  EventUtils.synthesizeMouseAtCenter(pinnedTab, {});
+  await tabSelected;
+  await waitForNextFrame();
+  await waitForNextFrame();
+  Assert.equal(
+    gBrowser.selectedTab,
+    pinnedTab,
+    "Clicking the stuck pinned tab selects it"
+  );
+  Assert.equal(
+    scrollbox.scrollLeft,
+    scrollLeft,
+    "The tab strip stays where it was"
+  );
+  Assert.ok(pinnedTab.hasAttribute("stuck"), "Pinned tab stays stuck");
+
+  await clickStuckTab(pinnedTab);
+  assertAtStart(
+    labelContainer,
+    "After clicking the selected pinned tab: label"
+  );
+  assertRightAfter(pinnedTab, labelContainer, "Pinned tab");
+
+  await selectTab(tabs.at(-1));
+  await scrollTo(0);
+  assertAtEnd(pinnedTab, "Pinned tab");
+  Assert.ok(labelContainer.hasAttribute("stuck"), "Label is stuck");
+  assertRightAfter(pinnedTab, labelContainer, "Pinned tab");
+
+  pinnedTab.pinnedToGroup = false;
+  await waitForNextFrame();
+  Assert.ok(!pinnedTab.hasAttribute("stuck"), "Unpinned tab isn't stuck");
+  Assert.ok(
+    !labelContainer.hasAttribute("stuck"),
+    "Label isn't stuck without pinned tabs or the selected tab in the group"
+  );
+
+  pinnedTab.pinnedToGroup = true;
+  let ungrouped = BrowserTestUtils.waitForEvent(window, "TabUngrouped");
+  gBrowser.ungroupTab(pinnedTab);
+  await ungrouped;
+  Assert.ok(!pinnedTab.pinnedToGroup, "Leaving its group unpins the tab");
 
   await selectTab(tabs[0]);
   group.ungroupTabs();

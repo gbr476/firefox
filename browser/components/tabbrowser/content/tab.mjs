@@ -259,6 +259,25 @@ export class MozTabbrowserTab extends MozElements.MozTab {
     return this.hasAttribute("pinned");
   }
 
+  /**
+   * Whether the tab is pinned to its tab group: it is then kept in view,
+   * along with the group's label, while the tab strip is scrolled, see
+   * MozTabbrowserTabs::#updateStickyGroupLabel.
+   *
+   * @returns {boolean}
+   */
+  get pinnedToGroup() {
+    return this.hasAttribute("pinnedtogroup");
+  }
+
+  set pinnedToGroup(val) {
+    if (val == this.pinnedToGroup) {
+      return;
+    }
+    this.toggleAttribute("pinnedtogroup", val);
+    gBrowser._tabAttrModified(this, ["pinnedtogroup"]);
+  }
+
   get isOpen() {
     return this.isConnected && !this.closing && this != FirefoxViewHandler.tab;
   }
